@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <radialGradient id="core" cx="54%" cy="48%" r="72%">
+      <stop offset="0" stop-color="#211016"/>
+      <stop offset="0.48" stop-color="#090b13"/>
+      <stop offset="1" stop-color="#010204"/>
+    </radialGradient>
+    <linearGradient id="glass" x1="128" y1="72" x2="896" y2="952" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1f2835"/>
+      <stop offset="0.45" stop-color="#0d111a"/>
+      <stop offset="1" stop-color="#05060a"/>
+    </linearGradient>
+    <linearGradient id="neon" x1="90" y1="130" x2="928" y2="892" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff2ecb"/>
+      <stop offset="0.52" stop-color="#ff0d73"/>
+      <stop offset="1" stop-color="#ff7a20"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="276" y1="248" x2="778" y2="760" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff26a"/>
+      <stop offset="0.48" stop-color="#ffd400"/>
+      <stop offset="1" stop-color="#ff7a00"/>
+    </linearGradient>
+    <filter id="pinkGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="1 0 0 0 1 0 0 0 0 .05 0 0 1 0 .68 0 0 0 .95 0"/>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="goldGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="12" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="1 0 0 0 1 0 1 0 .55 0 0 0 0 0 0 0 0 0 1 0"/>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <pattern id="grid" width="36" height="36" patternUnits="userSpaceOnUse">
+      <path d="M36 0H0V36" fill="none" stroke="#263244" stroke-width="1" opacity=".32"/>
+    </pattern>
+  </defs>
+
+  <rect width="1024" height="1024" rx="210" fill="#020305"/>
+  <rect x="42" y="42" width="940" height="940" rx="178" fill="url(#glass)"/>
+  <rect x="72" y="72" width="880" height="880" rx="148" fill="url(#core)"/>
+  <rect x="88" y="88" width="848" height="848" rx="132" fill="url(#grid)" opacity=".65"/>
+
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round" filter="url(#pinkGlow)">
+    <rect x="70" y="70" width="884" height="884" rx="150" stroke="url(#neon)" stroke-width="10" opacity=".65"/>
+    <path d="M122 268h74l34-34h114M680 118h160M838 168h54v108M126 764h106l42 42h158M616 902h166l44-44h76" stroke="#ff2ecb" stroke-width="9"/>
+    <path d="M118 520h88M818 520h88M514 116v72M514 836v72" stroke="#ff2ecb" stroke-width="7"/>
+    <path d="M132 158h84M806 112h78M112 854h128M768 890h98" stroke="#ff55d0" stroke-width="17" opacity=".8"/>
+  </g>
+
+  <g opacity=".82">
+    <path d="M164 182h42v8h-42zm68 0h14v8h-14zm32 0h82v8h-82zm-96 602h54v8h-54zm82 0h28v8h-28zm512-586h60v8h-60zm78 0h18v8h-18zm-104 604h72v8h-72zm92 0h34v8h-34z" fill="#0aa7ff"/>
+    <path d="M140 324h8v68h-8zm24 22h8v92h-8zm676-6h8v96h-8zm28-42h8v128h-8zm-720 314h8v82h-8zm700 4h8v86h-8z" fill="#ff2ecb"/>
+  </g>
+
+  <g filter="url(#goldGlow)">
+    <text x="258" y="655"
+          font-family="Arial Black, Arial, Helvetica, sans-serif"
+          font-size="410"
+          font-weight="900"
+          text-anchor="middle"
+          fill="url(#gold)"
+          stroke="#ff8a00"
+          stroke-width="7">Я</text>
+    <path d="M486 504 642 452 556 272 714 408 750 262 798 444 914 324 838 504 976 526 838 574 932 730 782 638 724 842 690 636 530 776 622 594 430 616Z"
+          fill="url(#gold)" stroke="#ff8a00" stroke-width="7"/>
+    <circle cx="742" cy="538" r="76" fill="#151018" stroke="#ff8a00" stroke-width="7"/>
+  </g>
+
+  <g filter="url(#pinkGlow)" fill="#ff2ecb">
+    <path d="M386 850h34v28h-34zm54-18h34v46h-34zm54-42h34v88h-34zm54-22h34v110h-34zm54 42h34v68h-34zm54-30h34v98h-34z"/>
+    <path d="M456 868h112" stroke="#ff2ecb" stroke-width="8" stroke-linecap="round"/>
+    <path d="M236 760h92v10h-92zm522 8h82v10h-82z"/>
+  </g>
+
+  <rect x="42" y="42" width="940" height="940" rx="178" fill="none" stroke="#ffffff" stroke-width="4" opacity=".1"/>
+</svg>
