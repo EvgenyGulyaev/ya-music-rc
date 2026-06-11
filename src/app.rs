@@ -14,7 +14,7 @@ use crate::config::AppConfig;
 use crate::hotkeys::MediaHotkeys;
 use crate::player::{PlaybackMode, PlayerCommand, PlayerState, Shortcut};
 
-const PLAYER_BAR_HEIGHT: f32 = 88.0;
+const PLAYER_BAR_HEIGHT: f32 = 72.0;
 const MAX_VOLUME_PERCENT: u8 = 150;
 const FAVORITE_ROW_FONT_SIZE: f32 = 20.0;
 
@@ -871,7 +871,7 @@ impl YaPlayerApp {
     }
 
     fn player_bar(&mut self, ui: &mut egui::Ui) {
-        ui.add_space(4.0);
+        ui.add_space(10.0);
         let position = self
             .audio
             .as_ref()
@@ -881,11 +881,18 @@ impl YaPlayerApp {
 
         ui.horizontal_centered(|ui| {
             let track_text = current_track_bar_text(self.player.current_track());
-            let title_width = (ui.available_width() - 332.0).max(180.0);
-            ui.add_sized(
-                [title_width, 36.0],
-                egui::Label::new(egui::RichText::new(track_text).size(18.0)).truncate(),
-            );
+            let controls_width = 44.0 + 52.0 + 44.0 + 72.0 + 44.0 + 36.0;
+            let gaps_width = ui.spacing().item_spacing.x * 6.0;
+            let capsule_width = (ui.available_width() - controls_width - gaps_width).max(220.0);
+            if let Some(seek_position) =
+                track_progress_capsule(ui, track_text, position, duration, capsule_width)
+            {
+                if let Some(audio) = &self.audio {
+                    if let Err(err) = audio.seek(seek_position) {
+                        self.status = err;
+                    }
+                }
+            }
 
             if ui
                 .add_sized([44.0, 36.0], egui::Button::new("⏮"))
@@ -920,42 +927,9 @@ impl YaPlayerApp {
             }
 
             self.volume_menu(ui);
-
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                self.account_menu(ui);
-            });
+            self.account_menu(ui);
         });
-        ui.horizontal(|ui| {
-            ui.add_sized(
-                [48.0, 18.0],
-                egui::Label::new(egui::RichText::new(format_duration(position)).size(12.0)),
-            );
-            let max_seconds = duration.map(duration_seconds).unwrap_or(0.0).max(0.0);
-            let mut position_seconds = duration_seconds(position).min(max_seconds);
-            let seek_response = ui.add_enabled(
-                max_seconds > 0.0,
-                egui::Slider::new(&mut position_seconds, 0.0..=max_seconds).show_value(false),
-            );
-            if seek_response.changed() {
-                if let Some(audio) = &self.audio {
-                    if let Err(err) = audio.seek(Duration::from_secs_f32(position_seconds)) {
-                        self.status = err;
-                    }
-                }
-            }
-            ui.add_sized(
-                [48.0, 18.0],
-                egui::Label::new(
-                    egui::RichText::new(
-                        duration
-                            .map(format_duration)
-                            .unwrap_or_else(|| "--:--".to_owned()),
-                    )
-                    .size(12.0),
-                ),
-            );
-        });
-        ui.add_space(4.0);
+        ui.add_space(10.0);
     }
 
     fn volume_menu(&mut self, ui: &mut egui::Ui) {
@@ -1153,12 +1127,100 @@ fn current_track_bar_text(track: Option<&str>) -> &str {
     track.unwrap_or("Трек не выбран")
 }
 
+fn track_progress_capsule(
+    ui: &mut egui::Ui,
+    track_text: &str,
+    position: Duration,
+    duration: Option<Duration>,
+    width: f32,
+) -> Option<Duration> {
+    let size = egui::vec2(width, 42.0);
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
+    let painter = ui.painter_at(rect);
+    let corner_radius = egui::CornerRadius::same(21);
+    let base = egui::Color32::from_rgb(58, 58, 60);
+    let progress = egui::Color32::from_rgb(9, 116, 146);
+
+    painter.rect_filled(rect, corner_radius, base);
+
+    if let Some(duration) = duration {
+        let ratio = progress_ratio(position, duration);
+        if ratio > 0.0 {
+            let progress_rect = egui::Rect::from_min_max(
+                rect.min,
+                egui::pos2(rect.left() + rect.width() * ratio, rect.bottom()),
+            );
+            painter.rect_filled(progress_rect, corner_radius, progress);
+        }
+    }
+
+    let text_color = egui::Color32::from_rgb(218, 218, 220);
+    let time_text = duration
+        .map(|duration| {
+            format!(
+                "{} / {}",
+                format_duration(position),
+                format_duration(duration)
+            )
+        })
+        .unwrap_or_else(|| "--:--".to_owned());
+
+    let title_rect =
+        egui::Rect::from_min_max(rect.min, egui::pos2(rect.right() - 150.0, rect.bottom()));
+    let title_painter = ui.painter_at(title_rect);
+    title_painter.text(
+        title_rect.left_center() + egui::vec2(18.0, 0.0),
+        egui::Align2::LEFT_CENTER,
+        track_text,
+        egui::FontId::proportional(18.0),
+        text_color,
+    );
+    painter.text(
+        rect.right_center() - egui::vec2(18.0, 0.0),
+        egui::Align2::RIGHT_CENTER,
+        time_text,
+        egui::FontId::proportional(14.0),
+        text_color,
+    );
+
+    if (response.clicked() || response.dragged()) && duration.is_some() {
+        response
+            .interact_pointer_pos()
+            .and_then(|pos| seek_position_from_x(rect.left(), rect.width(), pos.x, duration?))
+    } else {
+        None
+    }
+}
+
 fn player_bar_height() -> f32 {
     PLAYER_BAR_HEIGHT
 }
 
 fn duration_seconds(duration: Duration) -> f32 {
     duration.as_secs_f32()
+}
+
+fn progress_ratio(position: Duration, duration: Duration) -> f32 {
+    let duration = duration_seconds(duration);
+    if duration <= 0.0 {
+        return 0.0;
+    }
+
+    (duration_seconds(position) / duration).clamp(0.0, 1.0)
+}
+
+fn seek_position_from_x(
+    rect_left: f32,
+    rect_width: f32,
+    pointer_x: f32,
+    duration: Duration,
+) -> Option<Duration> {
+    if rect_width <= 0.0 {
+        return None;
+    }
+
+    let ratio = ((pointer_x - rect_left) / rect_width).clamp(0.0, 1.0);
+    Some(Duration::from_secs_f32(duration_seconds(duration) * ratio))
 }
 
 fn format_duration(duration: Duration) -> String {
@@ -1341,7 +1403,7 @@ mod tests {
 
     #[test]
     fn player_bar_has_fixed_compact_height() {
-        assert_eq!(player_bar_height(), 88.0);
+        assert_eq!(player_bar_height(), 72.0);
     }
 
     #[test]
@@ -1349,6 +1411,41 @@ mod tests {
         assert_eq!(format_duration(Duration::from_secs(0)), "0:00");
         assert_eq!(format_duration(Duration::from_secs(65)), "1:05");
         assert_eq!(format_duration(Duration::from_secs(600)), "10:00");
+    }
+
+    #[test]
+    fn progress_ratio_is_clamped() {
+        assert_eq!(
+            progress_ratio(Duration::from_secs(30), Duration::from_secs(120)),
+            0.25
+        );
+        assert_eq!(
+            progress_ratio(Duration::from_secs(180), Duration::from_secs(120)),
+            1.0
+        );
+        assert_eq!(
+            progress_ratio(Duration::from_secs(30), Duration::from_secs(0)),
+            0.0
+        );
+    }
+
+    #[test]
+    fn seek_position_from_x_clamps_to_capsule_bounds() {
+        let duration = Duration::from_secs(100);
+
+        assert_eq!(
+            seek_position_from_x(10.0, 200.0, 110.0, duration),
+            Some(Duration::from_secs(50))
+        );
+        assert_eq!(
+            seek_position_from_x(10.0, 200.0, -20.0, duration),
+            Some(Duration::from_secs(0))
+        );
+        assert_eq!(
+            seek_position_from_x(10.0, 200.0, 300.0, duration),
+            Some(Duration::from_secs(100))
+        );
+        assert_eq!(seek_position_from_x(10.0, 0.0, 30.0, duration), None);
     }
 
     #[test]
