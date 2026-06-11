@@ -308,6 +308,45 @@ fn station_session_tracks_parse_session_sequence_shape() {
 }
 
 #[test]
+fn search_tracks_parse_track_results() {
+    let http = FakeHttp::with_response(
+        r#"{"result":{"tracks":{"results":[{"id":"700","title":"Found Song","artists":[{"name":"Found Artist"}],"albums":[{"id":"800"}]}]}}}"#,
+    );
+    let client = YandexMusicClient::new("token".to_owned(), http);
+
+    let tracks = client.search_tracks("found song").expect("search tracks");
+
+    assert_eq!(
+        tracks,
+        vec![TrackSummary {
+            id: "700".to_owned(),
+            album_id: Some("800".to_owned()),
+            title: "Found Song".to_owned(),
+            artist: "Found Artist".to_owned(),
+        }]
+    );
+    let calls = client.http().calls.borrow();
+    assert!(
+        calls[0]
+            .0
+            .starts_with("https://api.music.yandex.net/search?")
+    );
+    assert!(calls[0].0.contains("type=track"));
+    assert!(calls[0].0.contains("text=found+song"));
+}
+
+#[test]
+fn search_tracks_skip_empty_query() {
+    let http = FakeHttp::with_response(r#"{}"#);
+    let client = YandexMusicClient::new("token".to_owned(), http);
+
+    let tracks = client.search_tracks("  ").expect("search tracks");
+
+    assert!(tracks.is_empty());
+    assert!(client.http().calls.borrow().is_empty());
+}
+
+#[test]
 fn requests_use_expected_endpoints_and_token() {
     let http = FakeHttp::with_response(r#"{"account":{"uid":1,"login":"x"}}"#);
     let client = YandexMusicClient::new("secret".to_owned(), http);

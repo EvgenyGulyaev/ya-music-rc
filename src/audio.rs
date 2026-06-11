@@ -1,8 +1,12 @@
 use std::fs::File;
+use std::time::Duration;
+
+use rodio::Source;
 
 pub struct AudioPlayer {
     _sink: rodio::MixerDeviceSink,
     player: rodio::Player,
+    duration: Option<Duration>,
 }
 
 impl AudioPlayer {
@@ -15,6 +19,7 @@ impl AudioPlayer {
         Ok(Self {
             _sink: sink,
             player,
+            duration: None,
         })
     }
 
@@ -22,6 +27,7 @@ impl AudioPlayer {
         self.player.stop();
         let source =
             rodio::Decoder::try_from(file).map_err(|err| format!("audio decode error: {err}"))?;
+        self.duration = source.total_duration();
         self.player.append(source);
         self.player.play();
         Ok(())
@@ -41,6 +47,27 @@ impl AudioPlayer {
 
     pub fn set_volume(&self, multiplier: f32) {
         self.player.set_volume(multiplier);
+    }
+
+    pub fn position(&self) -> Duration {
+        match self.duration {
+            Some(duration) => self.player.get_pos().min(duration),
+            None => self.player.get_pos(),
+        }
+    }
+
+    pub fn duration(&self) -> Option<Duration> {
+        self.duration
+    }
+
+    pub fn seek(&self, position: Duration) -> Result<(), String> {
+        let position = match self.duration {
+            Some(duration) => position.min(duration),
+            None => position,
+        };
+        self.player
+            .try_seek(position)
+            .map_err(|err| format!("seek error: {err}"))
     }
 
     pub fn is_empty(&self) -> bool {

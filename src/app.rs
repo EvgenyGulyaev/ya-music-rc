@@ -14,8 +14,9 @@ use crate::config::AppConfig;
 use crate::hotkeys::MediaHotkeys;
 use crate::player::{PlaybackMode, PlayerCommand, PlayerState, Shortcut};
 
-const PLAYER_BAR_HEIGHT: f32 = 64.0;
+const PLAYER_BAR_HEIGHT: f32 = 88.0;
 const MAX_VOLUME_PERCENT: u8 = 150;
+const FAVORITE_ROW_FONT_SIZE: f32 = 20.0;
 
 pub struct YaPlayerApp {
     config: AppConfig,
@@ -23,7 +24,10 @@ pub struct YaPlayerApp {
     status: String,
     account: Option<AccountStatus>,
     favorites: Vec<TrackSummary>,
+    search_input: String,
+    search_results: Vec<TrackSummary>,
     wave_stations: Vec<WaveStation>,
+    active_wave_station: Option<WaveStation>,
     wave_tracks: Vec<TrackSummary>,
     player: PlayerState,
     queue_source: QueueSource,
@@ -71,7 +75,10 @@ impl Default for YaPlayerApp {
             status: hotkey_status,
             account: None,
             favorites: Vec::new(),
+            search_input: String::new(),
+            search_results: Vec::new(),
             wave_stations: Vec::new(),
+            active_wave_station: None,
             wave_tracks: Vec::new(),
             player: PlayerState::default(),
             queue_source: QueueSource::Favorites,
@@ -113,9 +120,23 @@ impl eframe::App for YaPlayerApp {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("Ya Player").strong());
+                ui.label(egui::RichText::new("Воспроизведение").strong());
                 ui.separator();
-                ui.label(egui::RichText::new(&self.status).small());
+                ui.label("Поиск");
+                let search_response = ui.add_sized(
+                    [360.0, 24.0],
+                    egui::TextEdit::singleline(&mut self.search_input)
+                        .hint_text("Трек, артист или альбом"),
+                );
+                let enter_pressed = search_response.lost_focus()
+                    && ui.input(|input| input.key_pressed(egui::Key::Enter));
+                if ui
+                    .add_enabled(!self.busy, egui::Button::new("Найти"))
+                    .clicked()
+                    || enter_pressed
+                {
+                    self.search_tracks();
+                }
             });
 
             if self.account.is_none() && !(self.busy && !self.token_input.trim().is_empty()) {
@@ -139,14 +160,50 @@ impl eframe::App for YaPlayerApp {
                         self.check_login();
                     }
                 });
+                if !self.status.is_empty() {
+                    ui.label(egui::RichText::new(&self.status).small());
+                }
             }
 
             ui.separator();
             let current_track = self.player.current_track_summary().cloned();
             let favorite_rows = self.favorites.clone();
+            let search_rows = self.search_results.clone();
+            let wave_stations = self.wave_stations.clone();
             let mut favorite_clicked = None;
+            let mut search_clicked = None;
             let mut load_favorites_clicked = false;
             let mut play_wave_clicked = false;
+            let mut shuffle_wave_clicked = false;
+            let mut wave_station_clicked = None;
+
+            if !search_rows.is_empty() {
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("Результаты поиска").size(18.0));
+                    if ui.button("Очистить").clicked() {
+                        self.search_results.clear();
+                    }
+                });
+                egui::ScrollArea::vertical()
+                    .id_salt("search_results")
+                    .max_height(128.0)
+                    .show(ui, |ui| {
+                        for (index, track) in search_rows.iter().enumerate() {
+                            let selected = is_same_track(current_track.as_ref(), track);
+                            let row = format!("{} — {}", track.artist, track.title);
+                            if ui
+                                .selectable_label(
+                                    selected,
+                                    egui::RichText::new(row).size(FAVORITE_ROW_FONT_SIZE),
+                                )
+                                .clicked()
+                            {
+                                search_clicked = Some(index);
+                            }
+                        }
+                    });
+                ui.separator();
+            }
 
             ui.columns(2, |columns| {
                 if columns[0]
@@ -171,7 +228,13 @@ impl eframe::App for YaPlayerApp {
                             let selected = is_same_track(current_track.as_ref(), track);
                             let prefix = if selected { "▶ " } else { "" };
                             let row = format!("{prefix}{} — {}", track.artist, track.title);
-                            if ui.selectable_label(selected, row).clicked() {
+                            if ui
+                                .selectable_label(
+                                    selected,
+                                    egui::RichText::new(row).size(FAVORITE_ROW_FONT_SIZE),
+                                )
+                                .clicked()
+                            {
                                 favorite_clicked = Some(index);
                             }
                         }
@@ -192,32 +255,70 @@ impl eframe::App for YaPlayerApp {
                     if self.queue_source == QueueSource::Wave && self.player.is_playing() {
                         "Волна играет"
                     } else if self.wave_tracks.is_empty() {
-                        "Нажмите play, чтобы запустить волну."
+                        "Выберите подборку или запустите свою волну."
                     } else {
                         "Волна готова. Нажмите play."
                     };
                 columns[1].label(wave_label);
                 columns[1].add_space(8.0);
-                if columns[1]
-                    .add_enabled(
-                        !self.busy,
-                        egui::Button::new("▶ Play").min_size([120.0, 36.0].into()),
-                    )
-                    .on_hover_text("Запустить волну")
-                    .clicked()
-                {
-                    play_wave_clicked = true;
-                }
+                columns[1].horizontal_wrapped(|ui| {
+                    if ui
+                        .add_enabled(
+                            !self.busy,
+                            egui::Button::new("▶ Моя волна").min_size([140.0, 36.0].into()),
+                        )
+                        .on_hover_text("Запустить мою волну")
+                        .clicked()
+                    {
+                        play_wave_clicked = true;
+                    }
+                    if ui
+                        .add_enabled(
+                            !self.busy,
+                            egui::Button::new("Перемешать").min_size([120.0, 36.0].into()),
+                        )
+                        .on_hover_text("Обновить текущую волну")
+                        .clicked()
+                    {
+                        shuffle_wave_clicked = true;
+                    }
+                });
+                columns[1].add_space(10.0);
+                columns[1].label(egui::RichText::new("Подборки").size(18.0));
+                columns[1].horizontal_wrapped(|ui| {
+                    for station in wave_stations.iter().take(10) {
+                        let selected = self
+                            .active_wave_station
+                            .as_ref()
+                            .is_some_and(|active| same_station(active, station));
+                        if ui
+                            .selectable_label(selected, station.name.as_str())
+                            .on_hover_text("Запустить волну в этом стиле")
+                            .clicked()
+                        {
+                            wave_station_clicked = Some(station.clone());
+                        }
+                    }
+                });
             });
 
             if load_favorites_clicked {
                 self.load_favorites();
             }
             if play_wave_clicked {
-                self.play_wave();
+                self.play_my_wave();
+            }
+            if shuffle_wave_clicked {
+                self.shuffle_wave();
+            }
+            if let Some(station) = wave_station_clicked {
+                self.load_wave_station(station, true);
             }
             if let Some(index) = favorite_clicked {
                 self.select_favorite_track(index);
+            }
+            if let Some(index) = search_clicked {
+                self.select_search_track(index);
             }
         });
     }
@@ -350,6 +451,7 @@ impl YaPlayerApp {
                                         self.queue_source = QueueSource::Wave;
                                         self.loaded_audio_track_id = None;
                                     }
+                                    self.active_wave_station = wave.station.clone();
                                     self.wave_stations = wave.stations;
                                     self.wave_tracks = wave.tracks;
                                 }
@@ -381,6 +483,16 @@ impl YaPlayerApp {
                     }
                     self.busy = false;
                 }
+                UiMessage::Search(result) => {
+                    match result {
+                        Ok(tracks) => {
+                            self.status = format!("Найдено треков: {}", tracks.len());
+                            self.search_results = tracks;
+                        }
+                        Err(err) => self.status = err,
+                    }
+                    self.busy = false;
+                }
                 UiMessage::Wave(result, autoplay) => {
                     match result {
                         Ok(data) => {
@@ -399,6 +511,7 @@ impl YaPlayerApp {
                                     self.play_current_track();
                                 }
                             }
+                            self.active_wave_station = data.station.clone();
                             self.wave_stations = data.stations;
                             self.wave_tracks = data.tracks;
                         }
@@ -450,7 +563,7 @@ impl YaPlayerApp {
             let favorites = client
                 .liked_tracks(account.uid)
                 .map_err(|err| err.to_string());
-            let wave = load_wave_data(&client).map_err(|err| err.to_string());
+            let wave = load_wave_data(&client, None).map_err(|err| err.to_string());
 
             UiMessage::Bootstrap(Ok(BootstrapData {
                 account,
@@ -475,15 +588,39 @@ impl YaPlayerApp {
     }
 
     fn load_wave(&mut self, autoplay: bool) {
+        let station = self.active_wave_station.clone();
+        self.load_wave_station_optional(station, autoplay);
+    }
+
+    fn load_wave_station(&mut self, station: WaveStation, autoplay: bool) {
+        self.load_wave_station_optional(Some(station), autoplay);
+    }
+
+    fn load_wave_station_optional(&mut self, station: Option<WaveStation>, autoplay: bool) {
         let Some(token) = self.valid_token() else {
             return;
         };
         self.spawn_request("Загружаю волну...", move || {
             let client = YandexMusicClient::new(token, ReqwestHttpClient::default());
             UiMessage::Wave(
-                load_wave_data(&client).map_err(|err| err.to_string()),
+                load_wave_data(&client, station).map_err(|err| err.to_string()),
                 autoplay,
             )
+        });
+    }
+
+    fn search_tracks(&mut self) {
+        let query = self.search_input.trim().to_owned();
+        if query.is_empty() {
+            self.search_results.clear();
+            return;
+        }
+        let Some(token) = self.valid_token() else {
+            return;
+        };
+        self.spawn_request("Ищу треки...", move || {
+            let client = YandexMusicClient::new(token, ReqwestHttpClient::default());
+            UiMessage::Search(client.search_tracks(&query).map_err(|err| err.to_string()))
         });
     }
 
@@ -491,13 +628,37 @@ impl YaPlayerApp {
         self.select_track_from_list(self.favorites.clone(), index);
     }
 
-    fn play_wave(&mut self) {
-        if self.wave_tracks.is_empty() {
-            self.load_wave(true);
+    fn select_search_track(&mut self, index: usize) {
+        self.select_track_from_source(self.search_results.clone(), index, QueueSource::Search);
+    }
+
+    fn play_my_wave(&mut self) {
+        let station = self.my_wave_station();
+        let my_wave_already_loaded = station.as_ref().is_some_and(|station| {
+            self.active_wave_station
+                .as_ref()
+                .is_some_and(|active| same_station(active, station))
+                && !self.wave_tracks.is_empty()
+        });
+
+        if !my_wave_already_loaded {
+            self.load_wave_station_optional(station, true);
             return;
         }
 
         self.select_track_from_source(self.wave_tracks.clone(), 0, QueueSource::Wave);
+    }
+
+    fn shuffle_wave(&mut self) {
+        self.load_wave(true);
+    }
+
+    fn my_wave_station(&self) -> Option<WaveStation> {
+        self.wave_stations
+            .iter()
+            .find(|station| station.tag == "onyourwave")
+            .cloned()
+            .or_else(|| self.wave_stations.first().cloned())
     }
 
     fn select_track_from_list(&mut self, tracks: Vec<TrackSummary>, index: usize) {
@@ -710,13 +871,20 @@ impl YaPlayerApp {
     }
 
     fn player_bar(&mut self, ui: &mut egui::Ui) {
-        ui.add_space(6.0);
+        ui.add_space(4.0);
+        let position = self
+            .audio
+            .as_ref()
+            .map(AudioPlayer::position)
+            .unwrap_or_default();
+        let duration = self.audio.as_ref().and_then(AudioPlayer::duration);
+
         ui.horizontal_centered(|ui| {
             let track_text = current_track_bar_text(self.player.current_track());
-            let title_width = (ui.available_width() - 380.0).max(180.0);
+            let title_width = (ui.available_width() - 332.0).max(180.0);
             ui.add_sized(
-                [title_width, 40.0],
-                egui::Label::new(egui::RichText::new(track_text).size(16.0)).truncate(),
+                [title_width, 36.0],
+                egui::Label::new(egui::RichText::new(track_text).size(18.0)).truncate(),
             );
 
             if ui
@@ -744,10 +912,7 @@ impl YaPlayerApp {
                 self.handle_player_command(PlayerCommand::Next);
             }
             if ui
-                .add_sized(
-                    [116.0, 36.0],
-                    egui::Button::new(format!("Режим: {}", self.playback_mode.label())),
-                )
+                .add_sized([72.0, 36.0], egui::Button::new(self.playback_mode.label()))
                 .on_hover_text("После конца трека: следующий или повтор текущего")
                 .clicked()
             {
@@ -760,7 +925,37 @@ impl YaPlayerApp {
                 self.account_menu(ui);
             });
         });
-        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            ui.add_sized(
+                [48.0, 18.0],
+                egui::Label::new(egui::RichText::new(format_duration(position)).size(12.0)),
+            );
+            let max_seconds = duration.map(duration_seconds).unwrap_or(0.0).max(0.0);
+            let mut position_seconds = duration_seconds(position).min(max_seconds);
+            let seek_response = ui.add_enabled(
+                max_seconds > 0.0,
+                egui::Slider::new(&mut position_seconds, 0.0..=max_seconds).show_value(false),
+            );
+            if seek_response.changed() {
+                if let Some(audio) = &self.audio {
+                    if let Err(err) = audio.seek(Duration::from_secs_f32(position_seconds)) {
+                        self.status = err;
+                    }
+                }
+            }
+            ui.add_sized(
+                [48.0, 18.0],
+                egui::Label::new(
+                    egui::RichText::new(
+                        duration
+                            .map(format_duration)
+                            .unwrap_or_else(|| "--:--".to_owned()),
+                    )
+                    .size(12.0),
+                ),
+            );
+        });
+        ui.add_space(4.0);
     }
 
     fn volume_menu(&mut self, ui: &mut egui::Ui) {
@@ -824,7 +1019,9 @@ impl YaPlayerApp {
         self.account = None;
         self.favorites.clear();
         self.wave_stations.clear();
+        self.active_wave_station = None;
         self.wave_tracks.clear();
+        self.search_results.clear();
         self.player = PlayerState::default();
         self.queue_source = QueueSource::Favorites;
         self.loaded_audio_track_id = None;
@@ -842,6 +1039,7 @@ enum UiMessage {
     Audio(Result<(File, String, String), String>),
     Bootstrap(Result<BootstrapData, String>),
     Favorites(Result<Vec<TrackSummary>, String>),
+    Search(Result<Vec<TrackSummary>, String>),
     Wave(Result<WaveData, String>, bool),
     TokenCaptured(Result<String, String>),
     OutputDeviceChanged(Option<String>),
@@ -850,6 +1048,7 @@ enum UiMessage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum QueueSource {
     Favorites,
+    Search,
     Wave,
 }
 
@@ -860,6 +1059,7 @@ struct BootstrapData {
 }
 
 struct WaveData {
+    station: Option<WaveStation>,
     stations: Vec<WaveStation>,
     tracks: Vec<TrackSummary>,
     diagnostics: String,
@@ -867,30 +1067,35 @@ struct WaveData {
 
 fn load_wave_data(
     client: &YandexMusicClient<ReqwestHttpClient>,
+    selected_station: Option<WaveStation>,
 ) -> Result<WaveData, crate::api::ApiError> {
     let stations = client.wave_stations()?;
-    let Some(station) = stations
-        .iter()
-        .find(|station| station.tag == "onyourwave")
-        .or_else(|| stations.first())
-    else {
+    let station = selected_station
+        .as_ref()
+        .or_else(|| stations.iter().find(|station| station.tag == "onyourwave"))
+        .or_else(|| stations.first());
+    let Some(station) = station else {
         return Ok(WaveData {
+            station: None,
             stations,
             tracks: Vec::new(),
             diagnostics: "stations empty".to_owned(),
         });
     };
+    let station = station.clone();
 
     let station_label = format!("{}:{}", station.station_type, station.tag);
-    match client.station_tracks(station) {
+    match client.station_tracks(&station) {
         Ok(tracks) if !tracks.is_empty() => Ok(WaveData {
+            station: Some(station),
             stations,
             diagnostics: format!("station {station_label}, station tracks ok"),
             tracks,
         }),
         Ok(_) => {
-            let tracks = client.station_session_tracks(station)?;
+            let tracks = client.station_session_tracks(&station)?;
             Ok(WaveData {
+                station: Some(station),
                 stations,
                 diagnostics: format!(
                     "station {station_label}, station tracks empty, session fallback ok"
@@ -899,8 +1104,9 @@ fn load_wave_data(
             })
         }
         Err(station_err) => {
-            let tracks = client.station_session_tracks(station)?;
+            let tracks = client.station_session_tracks(&station)?;
             Ok(WaveData {
+                station: Some(station),
                 stations,
                 diagnostics: format!(
                     "station {station_label}, station tracks failed: {station_err}, session fallback ok"
@@ -951,8 +1157,23 @@ fn player_bar_height() -> f32 {
     PLAYER_BAR_HEIGHT
 }
 
+fn duration_seconds(duration: Duration) -> f32 {
+    duration.as_secs_f32()
+}
+
+fn format_duration(duration: Duration) -> String {
+    let total_seconds = duration.as_secs();
+    let minutes = total_seconds / 60;
+    let seconds = total_seconds % 60;
+    format!("{minutes}:{seconds:02}")
+}
+
 fn favorites_list_height(available_height: f32) -> f32 {
     available_height.max(160.0)
+}
+
+fn same_station(left: &WaveStation, right: &WaveStation) -> bool {
+    left.station_type == right.station_type && left.tag == right.tag
 }
 
 fn volume_multiplier(volume_percent: u8) -> f32 {
@@ -1120,7 +1341,14 @@ mod tests {
 
     #[test]
     fn player_bar_has_fixed_compact_height() {
-        assert_eq!(player_bar_height(), 64.0);
+        assert_eq!(player_bar_height(), 88.0);
+    }
+
+    #[test]
+    fn duration_formats_as_minutes_and_seconds() {
+        assert_eq!(format_duration(Duration::from_secs(0)), "0:00");
+        assert_eq!(format_duration(Duration::from_secs(65)), "1:05");
+        assert_eq!(format_duration(Duration::from_secs(600)), "10:00");
     }
 
     #[test]

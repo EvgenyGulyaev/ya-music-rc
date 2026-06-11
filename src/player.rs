@@ -24,7 +24,7 @@ impl PlaybackMode {
 
     pub fn label(self) -> &'static str {
         match self {
-            PlaybackMode::Continue => "Дальше",
+            PlaybackMode::Continue => "След",
             PlaybackMode::RepeatOne => "Повтор",
         }
     }

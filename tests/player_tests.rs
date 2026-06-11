@@ -44,7 +44,7 @@ fn play_and_pause_can_set_state_explicitly() {
 fn playback_mode_toggles_between_continue_and_repeat_one() {
     assert_eq!(PlaybackMode::Continue.toggle(), PlaybackMode::RepeatOne);
     assert_eq!(PlaybackMode::RepeatOne.toggle(), PlaybackMode::Continue);
-    assert_eq!(PlaybackMode::Continue.label(), "Дальше");
+    assert_eq!(PlaybackMode::Continue.label(), "След");
     assert_eq!(PlaybackMode::RepeatOne.label(), "Повтор");
 }
 

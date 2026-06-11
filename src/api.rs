@@ -2,6 +2,7 @@ use std::error::Error;
 use std::fmt;
 use std::time::Duration;
 
+use reqwest::Url;
 use reqwest::blocking::Client;
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use serde_json::Value;
@@ -255,6 +256,31 @@ impl<H: HttpClient> YandexMusicClient<H> {
         Ok(tracks.iter().map(parse_track_summary).collect())
     }
 
+    pub fn search_tracks(&self, query: &str) -> Result<Vec<TrackSummary>, ApiError> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let url = Url::parse_with_params(
+            &format!("{API_BASE}/search"),
+            [
+                ("text", query),
+                ("type", "track"),
+                ("page", "0"),
+                ("nocorrect", "false"),
+            ],
+        )
+        .map_err(|err| ApiError::Parse(err.to_string()))?;
+        let body = self.http.get(url.as_str(), &self.token)?;
+        let value: Value =
+            serde_json::from_str(&body).map_err(|err| ApiError::Parse(err.to_string()))?;
+        let tracks = search_track_entries(payload(&value))
+            .ok_or(ApiError::MissingField("search.tracks.results"))?;
+
+        Ok(tracks.iter().map(parse_track_summary).collect())
+    }
+
     pub fn track_playback_url(
         &self,
         track_id: &str,
@@ -402,6 +428,14 @@ fn station_entries(value: &Value) -> Option<&Vec<Value>> {
         Value::Array(items) => items.iter().find_map(station_entries),
         _ => None,
     }
+}
+
+fn search_track_entries(value: &Value) -> Option<&Vec<Value>> {
+    value
+        .pointer("/tracks/results")
+        .and_then(Value::as_array)
+        .or_else(|| value.pointer("/tracks").and_then(Value::as_array))
+        .or_else(|| value.as_array())
 }
 
 fn string_field<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
