@@ -146,7 +146,7 @@ impl eframe::App for YaPlayerApp {
             let mut shuffle_wave_clicked = false;
             let mut wave_station_clicked = None;
 
-            ui.horizontal_centered(|ui| {
+            ui.horizontal(|ui| {
                 ui.set_min_height(48.0);
                 ui.label(egui::RichText::new("🔍").size(20.0));
                 let button_width = 96.0;
