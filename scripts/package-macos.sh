@@ -3,9 +3,9 @@ set -euo pipefail
 
 APP_NAME="Ya Player"
 BINARY_NAME="ya-player"
-DMG_NAME="Ya-Player.dmg"
 BUNDLE_ID="app.ya-music-rc.ya-player"
-VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"
+VERSION="${VERSION:-$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)}"
+DMG_NAME="${DMG_NAME:-Ya-Player-macos-${VERSION}.dmg}"
 CODESIGN_IDENTITY="${CODESIGN_IDENTITY:--}"
 
 if [[ -z "${VERSION}" ]]; then
