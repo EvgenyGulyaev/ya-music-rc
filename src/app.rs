@@ -135,12 +135,26 @@ impl eframe::App for YaPlayerApp {
             });
 
         egui::CentralPanel::default().show(ctx, |ui| {
+            let current_track = self.player.current_track_summary().cloned();
+            let favorite_rows = self.favorites.clone();
+            let search_rows = self.search_results.clone();
+            let wave_stations = self.wave_stations.clone();
+            let mut favorite_clicked = None;
+            let mut search_clicked = None;
+            let mut load_favorites_clicked = false;
+            let mut play_wave_clicked = false;
+            let mut shuffle_wave_clicked = false;
+            let mut wave_station_clicked = None;
+
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("Воспроизведение").strong());
                 ui.separator();
-                ui.label("Поиск");
+                ui.label(egui::RichText::new("Поиск").weak());
+                let button_width = 88.0;
+                let input_width =
+                    (ui.available_width() - button_width - ui.spacing().item_spacing.x).max(280.0);
                 let search_response = ui.add_sized(
-                    [360.0, 24.0],
+                    [input_width, 34.0],
                     egui::TextEdit::singleline(&mut self.search_input)
                         .hint_text("Трек, артист или альбом"),
                 );
@@ -152,6 +166,60 @@ impl eframe::App for YaPlayerApp {
                     || enter_pressed
                 {
                     self.search_tracks();
+                }
+
+                if !search_rows.is_empty() {
+                    let popup_pos = search_response.rect.left_bottom() + egui::vec2(0.0, 6.0);
+                    let popup_width =
+                        search_response.rect.width() + button_width + ui.spacing().item_spacing.x;
+                    egui::Area::new(egui::Id::new("search_results_popup"))
+                        .order(egui::Order::Foreground)
+                        .fixed_pos(popup_pos)
+                        .show(ui.ctx(), |ui| {
+                            egui::Frame::popup(ui.style())
+                                .inner_margin(egui::Margin::symmetric(10, 8))
+                                .show(ui, |ui| {
+                                    ui.set_min_width(popup_width);
+                                    ui.horizontal(|ui| {
+                                        ui.label(
+                                            egui::RichText::new("Результаты поиска")
+                                                .size(15.0)
+                                                .weak(),
+                                        );
+                                        ui.with_layout(
+                                            egui::Layout::right_to_left(egui::Align::Center),
+                                            |ui| {
+                                                if ui.small_button("Очистить").clicked() {
+                                                    self.search_results.clear();
+                                                }
+                                            },
+                                        );
+                                    });
+                                    ui.add_space(4.0);
+                                    egui::ScrollArea::vertical()
+                                        .id_salt("search_results_popup_scroll")
+                                        .max_height(260.0)
+                                        .show(ui, |ui| {
+                                            for (index, track) in search_rows.iter().enumerate() {
+                                                let selected =
+                                                    is_same_track(current_track.as_ref(), track);
+                                                let row =
+                                                    format!("{} — {}", track.artist, track.title);
+                                                let response = ui.add_sized(
+                                                    [popup_width - 8.0, 32.0],
+                                                    egui::Button::selectable(
+                                                        selected,
+                                                        egui::RichText::new(row)
+                                                            .size(FAVORITE_ROW_FONT_SIZE),
+                                                    ),
+                                                );
+                                                if response.clicked() {
+                                                    search_clicked = Some(index);
+                                                }
+                                            }
+                                        });
+                                });
+                        });
                 }
             });
 
@@ -182,44 +250,6 @@ impl eframe::App for YaPlayerApp {
             }
 
             ui.separator();
-            let current_track = self.player.current_track_summary().cloned();
-            let favorite_rows = self.favorites.clone();
-            let search_rows = self.search_results.clone();
-            let wave_stations = self.wave_stations.clone();
-            let mut favorite_clicked = None;
-            let mut search_clicked = None;
-            let mut load_favorites_clicked = false;
-            let mut play_wave_clicked = false;
-            let mut shuffle_wave_clicked = false;
-            let mut wave_station_clicked = None;
-
-            if !search_rows.is_empty() {
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("Результаты поиска").size(18.0));
-                    if ui.button("Очистить").clicked() {
-                        self.search_results.clear();
-                    }
-                });
-                egui::ScrollArea::vertical()
-                    .id_salt("search_results")
-                    .max_height(128.0)
-                    .show(ui, |ui| {
-                        for (index, track) in search_rows.iter().enumerate() {
-                            let selected = is_same_track(current_track.as_ref(), track);
-                            let row = format!("{} — {}", track.artist, track.title);
-                            if ui
-                                .selectable_label(
-                                    selected,
-                                    egui::RichText::new(row).size(FAVORITE_ROW_FONT_SIZE),
-                                )
-                                .clicked()
-                            {
-                                search_clicked = Some(index);
-                            }
-                        }
-                    });
-                ui.separator();
-            }
 
             ui.columns(2, |columns| {
                 if columns[0]
