@@ -5,4 +5,5 @@ pub mod auth;
 pub mod config;
 pub mod download;
 pub mod hotkeys;
+pub mod media_controls;
 pub mod player;

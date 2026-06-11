@@ -12,6 +12,7 @@ use crate::audio::AudioPlayer;
 use crate::auth::{authorize_url, extract_oauth_token, extract_oauth_token_from_redirect};
 use crate::config::AppConfig;
 use crate::hotkeys::MediaHotkeys;
+use crate::media_controls::{SystemMediaCommand, SystemMediaControls};
 use crate::player::{PlaybackMode, PlayerCommand, PlayerState, Shortcut};
 
 const PLAYER_BAR_HEIGHT: f32 = 72.0;
@@ -36,6 +37,7 @@ pub struct YaPlayerApp {
     volume_percent: u8,
     loaded_audio_track_id: Option<String>,
     output_device_id: Option<String>,
+    media_controls: Option<SystemMediaControls>,
     hotkeys: Option<MediaHotkeys>,
     tx: Sender<UiMessage>,
     rx: Receiver<UiMessage>,
@@ -49,25 +51,37 @@ impl Default for YaPlayerApp {
         let token_input = config.token.clone().unwrap_or_default();
         let volume_percent = config.volume_percent.min(MAX_VOLUME_PERCENT);
         let (tx, rx) = mpsc::channel();
-        let (hotkeys, hotkey_status) = match MediaHotkeys::register() {
-            Ok(hotkeys) => {
-                let status = if hotkeys.warnings().is_empty() {
-                    "Введите OAuth token и проверьте вход".to_owned()
-                } else {
+        let (media_controls, media_controls_error) =
+            match SystemMediaControls::register_if_supported() {
+                Ok(media_controls) => (media_controls, None),
+                Err(err) => (None, Some(err)),
+            };
+        let (hotkeys, mut hotkey_status) = if media_controls.is_some() {
+            (None, "Введите OAuth token и проверьте вход".to_owned())
+        } else {
+            match MediaHotkeys::register() {
+                Ok(hotkeys) => {
+                    let status = if hotkeys.warnings().is_empty() {
+                        "Введите OAuth token и проверьте вход".to_owned()
+                    } else {
+                        format!(
+                            "Часть глобальных клавиш не зарегистрировалась: {}",
+                            hotkeys.warnings().join("; ")
+                        )
+                    };
+                    (Some(hotkeys), status)
+                }
+                Err(err) => (
+                    None,
                     format!(
-                        "Часть глобальных клавиш не зарегистрировалась: {}",
-                        hotkeys.warnings().join("; ")
-                    )
-                };
-                (Some(hotkeys), status)
-            }
-            Err(err) => (
-                None,
-                format!(
-                    "Глобальные media keys недоступны: {err}. В окне работают Space и стрелки."
+                        "Глобальные media keys недоступны: {err}. В окне работают Space и стрелки."
+                    ),
                 ),
-            ),
+            }
         };
+        if let Some(err) = media_controls_error {
+            hotkey_status = format!("Системные media keys недоступны: {err}. {hotkey_status}");
+        }
 
         let mut app = Self {
             config,
@@ -87,6 +101,7 @@ impl Default for YaPlayerApp {
             volume_percent,
             loaded_audio_track_id: None,
             output_device_id: default_output_device_id(),
+            media_controls,
             hotkeys,
             tx,
             rx,
@@ -106,6 +121,7 @@ impl Default for YaPlayerApp {
 impl eframe::App for YaPlayerApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        self.handle_system_media_controls();
         self.handle_global_hotkeys();
         self.handle_shortcuts(ctx);
         self.receive_messages();
@@ -325,6 +341,19 @@ impl eframe::App for YaPlayerApp {
 }
 
 impl YaPlayerApp {
+    fn handle_system_media_controls(&mut self) {
+        let Some(media_controls) = &self.media_controls else {
+            return;
+        };
+        let mut commands = Vec::new();
+        while let Some(command) = media_controls.poll_command() {
+            commands.push(command);
+        }
+        for command in commands {
+            self.handle_system_media_command(command);
+        }
+    }
+
     fn handle_global_hotkeys(&mut self) {
         let Some(hotkeys) = &self.hotkeys else {
             return;
@@ -398,20 +427,24 @@ impl YaPlayerApp {
                                     self.player.play();
                                     self.loaded_audio_track_id = Some(track_id);
                                     self.status = "Воспроизведение".to_owned();
+                                    self.update_system_media_state();
                                 }
                                 Err(err) => {
                                     self.player.pause();
                                     self.status = err;
+                                    self.update_system_media_state();
                                 }
                             },
                             Err(err) => {
                                 self.player.pause();
                                 self.status = err;
+                                self.update_system_media_state();
                             }
                         },
                         Err(err) => {
                             self.player.pause();
                             self.status = err;
+                            self.update_system_media_state();
                         }
                     }
                 }
@@ -465,6 +498,7 @@ impl YaPlayerApp {
                             }
                             self.account = Some(data.account);
                             self.status = status_parts.join("; ");
+                            self.update_system_media_state();
                         }
                         Err(err) => self.status = err,
                     }
@@ -478,6 +512,7 @@ impl YaPlayerApp {
                             self.queue_source = QueueSource::Favorites;
                             self.favorites = tracks;
                             self.loaded_audio_track_id = None;
+                            self.update_system_media_state();
                         }
                         Err(err) => self.status = err,
                     }
@@ -514,6 +549,7 @@ impl YaPlayerApp {
                             self.active_wave_station = data.station.clone();
                             self.wave_stations = data.stations;
                             self.wave_tracks = data.tracks;
+                            self.update_system_media_state();
                         }
                         Err(err) => self.status = err,
                     }
@@ -539,6 +575,7 @@ impl YaPlayerApp {
                             audio.pause();
                         }
                         self.status = "Аудиовывод изменился. Поставил паузу.".to_owned();
+                        self.update_system_media_state();
                     }
                     self.output_device_id = device_id;
                 }
@@ -783,9 +820,11 @@ impl YaPlayerApp {
                     if let Some(audio) = &self.audio {
                         audio.pause();
                     }
+                    self.update_system_media_state();
                 } else if self.can_resume_current_track() {
                     let audio = self.audio.as_ref().expect("checked audio");
                     audio.resume();
+                    self.update_system_media_state();
                 } else {
                     self.play_current_track();
                 }
@@ -798,6 +837,7 @@ impl YaPlayerApp {
                 }
 
                 self.player.apply(command);
+                self.update_system_media_state();
                 if should_continue {
                     self.play_current_track();
                 }
@@ -805,8 +845,34 @@ impl YaPlayerApp {
             PlayerCommand::Previous => {
                 let should_continue = self.player.is_playing();
                 self.player.apply(command);
+                self.update_system_media_state();
                 if should_continue {
                     self.play_current_track();
+                }
+            }
+        }
+    }
+
+    fn handle_system_media_command(&mut self, command: SystemMediaCommand) {
+        match command {
+            SystemMediaCommand::Player(command) => self.handle_player_command(command),
+            SystemMediaCommand::Play => {
+                if !self.player.is_playing() {
+                    self.handle_player_command(PlayerCommand::PlayPause);
+                }
+            }
+            SystemMediaCommand::Pause => {
+                if self.player.is_playing() {
+                    self.handle_player_command(PlayerCommand::PlayPause);
+                }
+            }
+            SystemMediaCommand::Seek(position) => {
+                if let Some(audio) = &self.audio {
+                    if let Err(err) = audio.seek(position) {
+                        self.status = err;
+                    } else {
+                        self.update_system_media_state();
+                    }
                 }
             }
         }
@@ -870,6 +936,15 @@ impl YaPlayerApp {
         }
     }
 
+    fn update_system_media_state(&mut self) {
+        let track = self.player.current_track_summary().cloned();
+        let position = self.audio.as_ref().map(AudioPlayer::position);
+        let duration = self.audio.as_ref().and_then(AudioPlayer::duration);
+        if let Some(media_controls) = &mut self.media_controls {
+            media_controls.set_track(track.as_ref(), duration, position, self.player.is_playing());
+        }
+    }
+
     fn player_bar(&mut self, ui: &mut egui::Ui) {
         ui.add_space(10.0);
         let position = self
@@ -890,6 +965,8 @@ impl YaPlayerApp {
                 if let Some(audio) = &self.audio {
                     if let Err(err) = audio.seek(seek_position) {
                         self.status = err;
+                    } else {
+                        self.update_system_media_state();
                     }
                 }
             }
@@ -1006,6 +1083,7 @@ impl YaPlayerApp {
             Ok(()) => self.status = "Аккаунт сброшен. Войдите через Яндекс.".to_owned(),
             Err(err) => self.status = format!("Аккаунт сброшен, но config не сохранён: {err}"),
         }
+        self.update_system_media_state();
     }
 }
 
