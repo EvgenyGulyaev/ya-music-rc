@@ -146,22 +146,26 @@ impl eframe::App for YaPlayerApp {
             let mut shuffle_wave_clicked = false;
             let mut wave_station_clicked = None;
 
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("Воспроизведение").strong());
-                ui.separator();
-                ui.label(egui::RichText::new("Поиск").weak());
-                let button_width = 88.0;
+            ui.horizontal_centered(|ui| {
+                ui.set_min_height(48.0);
+                ui.label(egui::RichText::new("🔍").size(20.0));
+                let button_width = 96.0;
                 let input_width =
-                    (ui.available_width() - button_width - ui.spacing().item_spacing.x).max(280.0);
+                    (ui.available_width() - button_width - ui.spacing().item_spacing.x).max(320.0);
                 let search_response = ui.add_sized(
-                    [input_width, 34.0],
+                    [input_width, 42.0],
                     egui::TextEdit::singleline(&mut self.search_input)
+                        .font(egui::TextStyle::Heading)
                         .hint_text("Трек, артист или альбом"),
                 );
                 let enter_pressed = search_response.lost_focus()
                     && ui.input(|input| input.key_pressed(egui::Key::Enter));
                 if ui
-                    .add_enabled(!self.busy, egui::Button::new("Найти"))
+                    .add_enabled(
+                        !self.busy,
+                        egui::Button::new(egui::RichText::new("Найти").size(18.0))
+                            .min_size(egui::vec2(button_width, 42.0)),
+                    )
                     .clicked()
                     || enter_pressed
                 {
@@ -205,13 +209,11 @@ impl eframe::App for YaPlayerApp {
                                                     is_same_track(current_track.as_ref(), track);
                                                 let row =
                                                     format!("{} — {}", track.artist, track.title);
-                                                let response = ui.add_sized(
-                                                    [popup_width - 8.0, 32.0],
-                                                    egui::Button::selectable(
-                                                        selected,
-                                                        egui::RichText::new(row)
-                                                            .size(FAVORITE_ROW_FONT_SIZE),
-                                                    ),
+                                                let response = search_result_row(
+                                                    ui,
+                                                    selected,
+                                                    &row,
+                                                    popup_width - 8.0,
                                                 );
                                                 if response.clicked() {
                                                     search_clicked = Some(index);
@@ -1233,6 +1235,38 @@ fn play_pause_button_label(is_playing: bool) -> &'static str {
 
 fn current_track_bar_text(track: Option<&str>) -> &str {
     track.unwrap_or("Трек не выбран")
+}
+
+fn search_result_row(ui: &mut egui::Ui, selected: bool, text: &str, width: f32) -> egui::Response {
+    let size = egui::vec2(width.max(120.0), 38.0);
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+    let fill = if selected {
+        egui::Color32::from_rgb(9, 116, 146)
+    } else if response.hovered() {
+        egui::Color32::from_rgb(48, 48, 50)
+    } else {
+        egui::Color32::TRANSPARENT
+    };
+
+    if fill != egui::Color32::TRANSPARENT {
+        ui.painter()
+            .rect_filled(rect, egui::CornerRadius::same(5), fill);
+    }
+
+    let color = if selected {
+        egui::Color32::from_rgb(235, 248, 255)
+    } else {
+        egui::Color32::from_rgb(210, 210, 212)
+    };
+    ui.painter().text(
+        rect.left_center() + egui::vec2(10.0, 0.0),
+        egui::Align2::LEFT_CENTER,
+        text,
+        egui::FontId::proportional(FAVORITE_ROW_FONT_SIZE),
+        color,
+    );
+
+    response
 }
 
 fn track_progress_capsule(
