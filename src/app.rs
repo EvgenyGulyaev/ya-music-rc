@@ -119,22 +119,22 @@ impl Default for YaPlayerApp {
 }
 
 impl eframe::App for YaPlayerApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        ctx.request_repaint_after(std::time::Duration::from_millis(100));
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_millis(100));
         self.handle_system_media_controls();
         self.handle_global_hotkeys();
-        self.handle_shortcuts(ctx);
+        self.handle_shortcuts(ui.ctx());
         self.receive_messages();
         self.handle_playback_completion();
 
-        egui::TopBottomPanel::bottom("player_bar")
-            .resizable(false)
-            .exact_height(player_bar_height())
-            .show(ctx, |ui| {
+        egui::Panel::bottom("player_bar")
+            .exact_size(player_bar_height())
+            .show(ui, |ui| {
                 self.player_bar(ui);
             });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             let current_track = self.player.current_track_summary().cloned();
             let favorite_rows = self.favorites.clone();
             let search_rows = self.search_results.clone();
@@ -225,7 +225,7 @@ impl eframe::App for YaPlayerApp {
                 }
             });
 
-            if self.account.is_none() && !(self.busy && !self.token_input.trim().is_empty()) {
+            if self.account.is_none() && (!self.busy || self.token_input.trim().is_empty()) {
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
                     ui.label("Token");
@@ -432,12 +432,11 @@ impl YaPlayerApp {
                 (egui::Key::ArrowLeft, "ArrowLeft"),
             ];
             for (key, name) in candidates {
-                if input.key_pressed(key) {
-                    if let Some(command) =
+                if input.key_pressed(key)
+                    && let Some(command) =
                         Shortcut::from_key(name, input.modifiers.ctrl, input.modifiers.command)
-                    {
-                        commands.push(command);
-                    }
+                {
+                    commands.push(command);
                 }
             }
         });
@@ -993,13 +992,12 @@ impl YaPlayerApp {
             let capsule_width = (ui.available_width() - controls_width - gaps_width).max(220.0);
             if let Some(seek_position) =
                 track_progress_capsule(ui, track_text, position, duration, capsule_width)
+                && let Some(audio) = &self.audio
             {
-                if let Some(audio) = &self.audio {
-                    if let Err(err) = audio.seek(seek_position) {
-                        self.status = err;
-                    } else {
-                        self.update_system_media_state();
-                    }
+                if let Err(err) = audio.seek(seek_position) {
+                    self.status = err;
+                } else {
+                    self.update_system_media_state();
                 }
             }
 

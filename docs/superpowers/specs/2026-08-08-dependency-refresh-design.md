@@ -31,7 +31,11 @@ Latest direct releases checked through the official Cargo registry client:
 ## Scope
 
 - Move `eframe` and `egui` from 0.33 to 0.36.
+- Migrate the eframe app entry point from `App::update(Context, Frame)` to
+  `App::ui(Ui, Frame)` and use egui's root-`Ui` panel API.
 - Move `reqwest` from 0.12 to 0.13.
+- Replace Reqwest's removed `rustls-tls` feature with its 0.13 `rustls`
+  replacement, retaining TLS while leaving other default features disabled.
 - Refresh all compatible direct and transitive versions in `Cargo.lock`.
 - Remove the redundant `default-features = true` setting from `eframe`.
 - Fix the four current Clippy findings in `src/app.rs` without changing UI or
@@ -43,8 +47,9 @@ Latest direct releases checked through the official Cargo registry client:
 Compilation errors from new APIs will be handled at their existing call sites.
 Network, authentication, playback, configuration, hotkey, and media-control
 error behavior must remain unchanged. Platform feature sets remain enabled as
-they are today; feature pruning is excluded because all supported desktop
-targets cannot be exercised locally.
+they are today; Reqwest 0.13's supported Rustls path uses its platform verifier.
+Feature pruning is excluded because all supported desktop targets cannot be
+exercised locally.
 
 ## Verification
 
@@ -56,4 +61,6 @@ Run, in order:
 4. `cargo build --release`
 
 The update is ready to push only when all four commands exit successfully and
-the final diff contains no unrelated changes.
+the final diff contains no unrelated changes. The latest `souvlaki 0.8.3`
+still pulls `block 0.1.6`, which Rust 1.96 reports as future-incompatible;
+patching or replacing that upstream media-control stack is outside this update.
